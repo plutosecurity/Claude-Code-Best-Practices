@@ -1,0 +1,202 @@
+{
+  // ============================================================
+  // Claude Code — Endpoint Security Settings
+  // Place at: ~/.claude/settings.json  (global, all projects)
+  //       or: <project>/.claude/settings.json  (project-scoped)
+  //
+  // HOW PERMISSIONS WORK — THREE TIERS:
+  //
+  //   "allow"  → auto-approved, Claude proceeds without asking
+  //   (absent) → Claude asks for confirmation before proceeding
+  //   "deny"   → HARD BLOCK, Claude cannot perform this action
+  //              even if the user explicitly says "yes, do it"
+  //
+  // Strategy used here:
+  //   - Low-risk read/inspect commands → allow (no friction)
+  //   - Medium-risk commands (file writes, git commits, etc.)
+  //     → not listed = Claude asks first (good default)
+  //   - Irreversible / high-impact / exfiltration-risk commands
+  //     → deny (no exceptions, ever)
+  //
+  // Deny is intentionally strict. If you find a legitimate use
+  // for a denied command, grant it explicitly at the task level
+  // rather than removing the deny rule.
+  // ============================================================
+
+  // ── TELEMETRY: OpenTelemetry (OTel) Configuration ─────────
+  // Exports all Claude Code activity (tool calls, API requests,
+  // permission decisions, costs, token usage) to your OTel
+  // collector / SIEM. This gives your security team full
+  // observability over what Claude does on every endpoint.
+  //
+  // REQUIRED: Set CLAUDE_CODE_ENABLE_TELEMETRY to "1" to activate.
+  //
+  // Replace the endpoint with your organization's OTel collector.
+  // For authentication, set OTEL_EXPORTER_OTLP_HEADERS or use
+  // the otelHeadersHelper for dynamic token refresh.
+  //
+  // PRIVACY NOTE:
+  //   - User prompts are NOT logged by default. Set
+  //     OTEL_LOG_USER_PROMPTS=1 to enable (privacy trade-off).
+  //   - Tool arguments (bash commands, file paths) are NOT logged
+  //     by default. Set OTEL_LOG_TOOL_DETAILS=1 to enable.
+  // ──────────────────────────────────────────────────────────
+
+  "env": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://YOUR_OTEL_COLLECTOR:4317",
+    "OTEL_METRIC_EXPORT_INTERVAL": "60000",
+    "OTEL_LOGS_EXPORT_INTERVAL": "5000"
+    // ── Optional: Uncomment to log sensitive details ──
+    // "OTEL_LOG_USER_PROMPTS": "1",
+    // "OTEL_LOG_TOOL_DETAILS": "1"
+    // ── Optional: Auth header for your collector ──
+    // "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Bearer YOUR_TOKEN"
+    // ── Optional: Tag sessions by team/department ──
+    // "OTEL_RESOURCE_ATTRIBUTES": "department=engineering,team.id=platform"
+  },
+
+  // ── Optional: Dynamic OTel auth token refresh ─────────────
+  // Point this to a script that outputs JSON with auth headers.
+  // Claude Code will call it periodically (default: every 29 min).
+  //
+  // "otelHeadersHelper": "/path/to/generate_otel_headers.sh",
+
+  // ── SECRET SCANNING: Pre-commit Hook ──────────────────────
+  // Runs a secret scanner (gitleaks or trufflehog) on staged
+  // changes before every git commit. If secrets are detected,
+  // the commit is blocked and Claude is told to remove them.
+  //
+  // If no scanner is installed, the user is warned but the
+  // commit is not blocked.
+  //
+  // Install a scanner:
+  //   brew install gitleaks       (recommended)
+  //   brew install trufflehog     (alternative)
+  // ──────────────────────────────────────────────────────────
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": ".claude/hooks/pre-commit-secret-scan.sh",
+            "timeout": 30,
+            "statusMessage": "Scanning staged changes for secrets..."
+          }
+        ]
+      }
+    ]
+  },
+
+  "permissions": {
+
+    // ── AUTO-APPROVED: Safe read-only / inspection commands ───
+    // Claude will not ask before running these.
+    "allow": [
+      "Bash(git status)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(ls *)",
+      "Bash(ls)",
+      "Bash(cat *)",
+      "Bash(echo *)",
+      "Bash(pwd)",
+      "Bash(whoami)",
+      "Bash(which *)",
+      "Bash(python* --version)",
+      "Bash(node --version)",
+      "Bash(npm list*)",
+      "Bash(pip list*)"
+    ],
+
+    // ── NOTE: anything NOT listed above and NOT denied below ──
+    // falls into the middle tier: Claude will ask for confirmation
+    // before running it. This covers file writes, git commits,
+    // npm install (local), running tests, starting servers, etc.
+    // That's intentional — medium-risk = ask, don't block.
+
+    // ── HARD BLOCKED: Never permitted under any circumstances ─
+    // These cannot be unlocked by user confirmation in the chat.
+    // To legitimately use one of these, run it yourself in terminal.
+    "deny": [
+
+      // ── Destructive filesystem ops ──
+      // Note: rm -rf and rm -f are intentionally NOT denied here.
+      // They fall into the "ask" tier so Claude can clean build
+      // artifacts and temp files with user confirmation.
+      "Bash(shred *)",
+      "Bash(mkfs*)",
+      "Bash(dd *)",
+
+      // ── Secrets reading ──
+      // Prevents Claude from reading or printing credential files.
+      // Note: "cat *" is in allow above, so these deny rules must
+      // be more specific to override (deny takes precedence).
+      "Bash(cat *id_rsa*)",
+      "Bash(cat *id_ed25519*)",
+      "Bash(cat *.pem)",
+      "Bash(cat *.key)",
+      "Bash(cat .env*)",
+      "Bash(cat *credentials*)",
+      "Bash(cat ~/.aws*)",
+      "Bash(cat ~/.kube/config*)",
+      "Bash(cat *.token)",
+      "Bash(printenv *SECRET*)",
+      "Bash(printenv *API_KEY*)",
+      "Bash(printenv *PRIVATE_KEY*)",
+      "Bash(printenv *ACCESS_KEY*)",
+      "Bash(printenv *TOKEN*)",
+      "Bash(printenv *PASSWORD*)",
+
+      // ── Exfiltration / piped execution ──
+      // Prevents downloading-and-executing scripts and sending
+      // file contents to external endpoints.
+      "Bash(curl * | bash)",
+      "Bash(curl * | sh)",
+      "Bash(wget * | bash)",
+      "Bash(wget * | sh)",
+      "Bash(curl -d @*)",
+      "Bash(curl --data @*)",
+      "Bash(nc *)",
+      "Bash(netcat *)",
+
+      // ── Privilege escalation ──
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(chmod 777 *)",
+      "Bash(doas *)",
+
+      // ── Persistence mechanisms ──
+      "Bash(crontab *)",
+      "Bash(launchctl *)",
+      "Bash(systemctl enable *)",
+      "Bash(nohup * &)",
+
+      // ── Cloud / infra mutations ──
+      // Destructive-only commands are hard-blocked. Create/apply/exec
+      // commands are moved to the "ask" tier so Claude can still do
+      // IaC and debugging work with user confirmation.
+      "Bash(terraform destroy*)",
+      "Bash(aws * delete*)",
+      "Bash(gcloud * delete*)",
+      "Bash(kubectl delete *)",
+
+      // ── Silent global package installation ──
+      // Note: brew install is in the "ask" tier (not denied) since
+      // it's commonly needed for dev tooling.
+      "Bash(apt-get install *)",
+      "Bash(apt install *)",
+      "Bash(npm install -g *)",
+      "Bash(pip install --break-system*)"
+    ]
+  }
+}
