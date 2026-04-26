@@ -30,8 +30,9 @@ fi
 # ── Try gitleaks first, fall back to trufflehog ──────────────
 
 if command -v gitleaks &>/dev/null; then
-  SCAN_OUTPUT=$(git diff --cached | gitleaks detect --pipe --no-banner 2>&1 || true)
-  if echo "$SCAN_OUTPUT" | grep -qiE 'finding|leak|secret'; then
+  # gitleaks exits non-zero when leaks are found, zero when clean.
+  # Capture both output and exit code without tripping `set -e`.
+  if ! SCAN_OUTPUT=$(git diff --cached | gitleaks detect --pipe --no-banner 2>&1); then
     jq -n \
       --arg reason "🚨 Secret scanner (gitleaks) blocked this commit. Secrets detected in staged changes — remove them before committing." \
       --arg detail "$SCAN_OUTPUT" \
@@ -46,8 +47,8 @@ if command -v gitleaks &>/dev/null; then
   fi
 
 elif command -v trufflehog &>/dev/null; then
-  SCAN_OUTPUT=$(git diff --cached | trufflehog --stdin 2>&1 || true)
-  if echo "$SCAN_OUTPUT" | grep -qiE 'found|verified|secret|credential'; then
+  # --fail makes trufflehog exit non-zero on findings.
+  if ! SCAN_OUTPUT=$(git diff --cached | trufflehog --stdin --fail 2>&1); then
     jq -n \
       --arg reason "🚨 Secret scanner (trufflehog) blocked this commit. Secrets detected in staged changes — remove them before committing." \
       --arg detail "$SCAN_OUTPUT" \

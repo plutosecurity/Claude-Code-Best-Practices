@@ -1,8 +1,12 @@
-# Claude Code — Secure Endpoint Configuration Bundle
+# Claude Code — Secure Endpoint Configuration Reference
 
-A hardened configuration template for running **Claude Code** safely on enterprise
-and security-conscious endpoints. Covers behavioral rules, tool permissions, MCP server
-policy, and prompt injection defenses.
+A reference set of hardened configuration files for running **Claude Code** safely on
+enterprise and security-conscious endpoints. Covers behavioral rules, tool permissions,
+MCP server policy, and prompt injection defenses.
+
+This repo is intended as a **learning resource and starting point**: read it, understand
+each file, then copy the pieces you want into your own `~/.claude/` directory. There is
+no installer — the files are short enough to review and place by hand.
 
 Built and maintained by **[Pluto Security](https://pluto.security/)**.
 
@@ -12,18 +16,21 @@ Built and maintained by **[Pluto Security](https://pluto.security/)**.
 
 ```
 claude-code-secure/
-├── README.md                        ← you are here
-├── install.sh                       ← one-line installer (merges with existing config)
-├── CLAUDE.md                        ← global behavioral rules (copy to ~/.claude/)
-├── CLAUDE.project-template.md       ← per-repo template (copy to <project>/CLAUDE.md)
-├── .claude/
-│   ├── settings.json                ← tool permissions, telemetry & hooks
-│   ├── mcp_servers.json             ← MCP server configuration & policy
-│   └── hooks/
-│       └── pre-commit-secret-scan.sh ← blocks commits containing secrets
-└── tests/
-    └── verify-bundle.sh             ← verifies installation and runs functional tests
+├── README.md                         ← you are here
+├── CLAUDE.md                         ← global behavioral rules (copy to ~/.claude/)
+├── CLAUDE.project-template.md        ← per-repo template (copy to <project>/CLAUDE.md)
+└── .claude/
+    ├── settings.json                 ← tool permissions, telemetry & hooks
+    ├── SETTINGS.md                   ← field-by-field rationale for settings.json
+    ├── mcp_servers.json              ← MCP server configuration (ships empty)
+    ├── MCP_SERVERS.md                ← rationale and templates for adding MCP servers
+    └── hooks/
+        └── pre-commit-secret-scan.sh ← blocks commits containing secrets
 ```
+
+> The `.json` files are intentionally comment-free so Claude Code can parse them
+> directly. The `SETTINGS.md` and `MCP_SERVERS.md` companion files carry the
+> rationale that would otherwise live as comments in the JSON.
 
 ---
 
@@ -239,30 +246,30 @@ This bundle protects against the following threat categories:
 
 ---
 
-## Installation
+## Using This Bundle
 
-### Quick Install (recommended)
+There is no installer. Read each file, decide what fits your environment, and copy
+it into place yourself. This is intentional — the configuration controls what Claude
+can do on your endpoint, so it should not be installed by a script you didn't read.
 
-One command to download, merge with existing config, and verify:
+### 1. Clone the repo
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ehudmelzer/claude-code-secure-practices/main/install.sh | bash
+git clone <repo-url> claude-code-secure
+cd claude-code-secure
 ```
 
-The installer **merges with your existing configuration** — it will never overwrite your
-custom rules. Specifically:
+### 2. Review the files
 
-- **`CLAUDE.md`** — appends security rules below your existing content
-- **`settings.json`** — merges `allow`/`deny` arrays and `env` keys (deduplicates)
-- **`mcp_servers.json`** — skipped if you already have one
-- **Hook script** — always installed/updated
+Read in this order:
 
-**Prerequisites:** `node`, `jq` (for JSON merge). The installer will attempt to install
-`gitleaks` via Homebrew if no secret scanner is found.
+1. `CLAUDE.md` — the behavioral rules that get injected into every session
+2. `.claude/SETTINGS.md` — the rationale behind every entry in `settings.json`
+3. `.claude/settings.json` — the actual permission allow/deny rules
+4. `.claude/MCP_SERVERS.md` — the policy for adding MCP servers
+5. `.claude/hooks/pre-commit-secret-scan.sh` — the secret-scanning hook
 
-### Manual Install
-
-If you prefer to install manually or review files first:
+### 3. Copy into `~/.claude/`
 
 ```bash
 mkdir -p ~/.claude/hooks
@@ -271,26 +278,34 @@ cp .claude/settings.json ~/.claude/settings.json
 cp .claude/mcp_servers.json ~/.claude/mcp_servers.json
 cp .claude/hooks/pre-commit-secret-scan.sh ~/.claude/hooks/
 chmod +x ~/.claude/hooks/pre-commit-secret-scan.sh
+```
 
-# Install a secret scanner (pick one)
+> If you already have a `~/.claude/settings.json`, **don't overwrite it.** Merge the
+> `allow`/`deny` arrays and `env` keys by hand so you keep your existing rules.
+
+### 4. Edit `settings.json` for your environment
+
+At minimum, replace `http://YOUR_OTEL_COLLECTOR:4317` with your actual collector
+endpoint, or remove the OTel `env` block entirely if you don't run telemetry.
+
+### 5. Install a secret scanner
+
+The pre-commit hook calls `gitleaks` (or `trufflehog` as a fallback). Install one:
+
+```bash
 brew install gitleaks       # recommended
 # brew install trufflehog   # alternative
 ```
 
-### Per-Project Rules
+If neither is installed, the hook warns but doesn't block commits.
 
-Drop a customized template into any repo root:
+### 6. Add per-project rules (optional)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/ehudmelzer/claude-code-secure-practices/main/CLAUDE.project-template.md -o /path/to/your/project/CLAUDE.md
-# Then edit it: fill in project name, stack, off-limits paths, safe defaults
-```
-
-### Verify Installation
+Copy the template into any repository's root and customize it:
 
 ```bash
-# If you cloned the repo:
-./tests/verify-bundle.sh
+cp CLAUDE.project-template.md /path/to/your/project/CLAUDE.md
+# Then edit: fill in project name, stack, off-limits paths, safe defaults
 ```
 
 ---
